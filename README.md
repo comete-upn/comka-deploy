@@ -1,4 +1,4 @@
-# Comete - Karuta deployment of local test environment
+# Comka - Deploy Karuta local test environment
 
 Deploy Karuta test environment using Vagrant and Ansible. Karuta is installed on Tomcat 7 and MariaDB. To ease the testing process [Frontail](https://github.com/mthenw/frontail) is installed to view Tomcat and Karuta logs in the browser.
 
