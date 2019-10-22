@@ -1,0 +1,39 @@
+---
+# Karuta configuration
+
+sql:
+  name: "karuta-backend"
+
+tomcat:
+  user: "tomcat7"
+
+karuta:
+  # Used to fetch the frontend version
+  version: "2.4"
+  # Main url to fetch official karuta packages
+  fetchurl: "https://www.eportfolium.com/site/wardir"
+  path:
+    # Tomcat webapps folder
+    war: "/var/lib/tomcat7/webapps"
+    fileserver:
+      # File server configuration directory
+      config: "/var/lib/tomcat7/karuta-fileserver_config"
+      # File server data directory
+      data: "/var/lib/tomcat7/karuta-fileserver_data"
+    backend:
+      # Backend configuration directory
+      config: "/var/lib/tomcat7/karuta-backend_config"
+      # Backend log directory
+      log: "/var/lib/tomcat7/karuta-backend_logs"
+  # Base dataset (portfolios) to install
+  dataset: "https://www.eportfolium.com/site/wardir/2.4/karuta-2019-03-07.zip"
+
+# Frontail configuration
+frontail:
+  path:
+    # Log station install path
+    install: "/opt/frontail"
+    # Full path to log files to display in logstation
+    logs:
+      - "/var/log/tomcat7/backend.log"
+      - "/var/log/tomcat7/catalina.out"

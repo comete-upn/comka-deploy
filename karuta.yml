@@ -1,0 +1,184 @@
+---
+
+- hosts: default
+  become_method: sudo
+  become: yes
+  tasks:
+
+    - name: Include configuration variables
+      include_vars: "config.yml"
+      tags: always
+
+    - name: Installing packages
+      apt:
+        name:
+          - tomcat7
+          - mariadb-client
+          - mariadb-server
+          - python-mysqldb
+        state: present
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Create databse
+      mysql_db:
+        name: "{{ sql.name }}"
+        state: present
+      register: karuta_db_created
+
+    - name: Import database
+      block:
+
+        - name: Download database script
+          get_url:
+            url: "{{ karuta.fetchurl }}/karuta-backend.sql"
+            dest: "/tmp/karuta-backend.sql"
+
+        - name: Import database
+          mysql_db:
+            name: "{{ sql.name }}"
+            state: import
+            target: /tmp/karuta-backend.sql
+
+        - name: Clean up
+          file:
+            path: /tmp/karuta-backend.sql
+            state: absent
+
+      when: karuta_db_created.changed
+
+    - name: Create file server configuration directory
+      file:
+        path: "{{ karuta.path.fileserver.config }}"
+        state: directory
+        owner: "{{ tomcat.user }}"
+        group: "{{ tomcat.user }}"
+        mode: '0755'
+
+    - name: Setup file server data directory
+      file:
+        path: "{{ karuta.path.fileserver.data }}"
+        state: directory
+        owner: "{{ tomcat.user }}"
+        group: "{{ tomcat.user }}"
+        mode: '0755'
+
+    - name: Download file server configuration
+      get_url:
+        url: "{{ karuta.fetchurl }}/persistence_config.properties"
+        dest: "{{ karuta.path.fileserver.config }}/"
+        force: no
+
+    - name: Create backend configuration directory
+      file:
+        path: "{{ karuta.path.backend.config }}"
+        state: directory
+        owner: "{{ tomcat.user }}"
+        group: "{{ tomcat.user }}"
+        mode: '0755'
+
+    - name: Download backend configuration
+      get_url:
+        url: "{{ karuta.fetchurl }}/configKaruta.properties"
+        dest: "{{ karuta.path.backend.config }}/"
+        force: no
+
+    - name: Setup backend log directory
+      file:
+        path: "{{ karuta.path.backend.log }}"
+        state: directory
+        owner: "{{ tomcat.user }}"
+        group: "{{ tomcat.user }}"
+        mode: '0755'
+
+    - name: Stop Tomcat service, if started
+      service:
+        name: tomcat7
+        state: stopped
+
+    - name: Download frontend
+      get_url:
+        url: "{{ karuta.fetchurl }}/{{ karuta.version }}/karuta.war"
+        dest: "{{ karuta.path.war }}/karuta.war"
+        force: no
+
+    - name: Download backend
+      get_url:
+        url: "{{ karuta.fetchurl }}/karuta-backend.war"
+        dest: "{{ karuta.path.war }}/karuta-backend.war"
+        force: no
+
+    - name: Download fileserver
+      get_url:
+        url: "{{ karuta.fetchurl }}/karuta-fileserver.war"
+        dest: "{{ karuta.path.war }}/karuta-fileserver.war"
+        force: no
+
+    - name: Start Tomcat service
+      service:
+        name: tomcat7
+        state: started
+
+    - name: Retrieve count of portfolios installed
+      command: >
+        mysql -BNe "SELECT COUNT(*) FROM portfolio" {{ sql.name }}
+      register: count_portfolios
+      check_mode: no
+      changed_when: false
+
+    - name: Install base dataset
+      block:
+        - name: Download dataset script
+          get_url:
+            url: "{{ karuta.dataset }}"
+            dest: "/tmp/karuta.zip"
+
+        - name: Login
+          command: >
+            curl -s -c /tmp/karuta-cookies.txt -b /tmp/karuta-cookies.txt --header "Content-Type:application/xml" -d "<credential><login>root</login><password>mati</password></credential>" http://localhost:8080/karuta-backend/rest/api/credential/login
+
+        - name: Upload dataset
+          command: >
+            curl -s -b /tmp/karuta-cookies.txt -F "uploadfile=@/tmp/karuta.zip" http://localhost:8080/karuta-backend/rest/api/portfolios/zip
+
+        - name: Clean up
+          file:
+            path: "/tmp/{{ item }}"
+            state: absent
+          loop:
+            - karuta.zip
+            - karuta-cookies.txt
+
+      when: count_portfolios.stdout == "0"
+
+    - name: Create Frontail directory
+      file:
+        path: "{{ frontail.path.install }}"
+        state: directory
+
+    - name: Get latest Frontail version
+      shell: curl -s https://api.github.com/repos/mthenw/frontail/releases/latest | grep browser_download_url | grep linux | cut -d '"' -f4
+      register: frontail_release
+
+    - name: Download Frontail
+      get_url:
+        url: "{{ frontail_release.stdout }}"
+        dest: "{{ frontail.path.install }}/{{ frontail_release.stdout|basename }}"
+        mode: "0755"
+      register: frontail_installed
+
+    - name: Configure Frontail
+      block:
+
+        - name: Download Frontail preset
+          get_url:
+            url: "https://raw.githubusercontent.com/mthenw/frontail/master/preset/python.json"
+            dest: "{{ frontail.path.install }}/python.json"
+
+        - name: Set Frontail to start at boot
+          command: sed -i '/^exit 0/i {{ frontail.path.install }}/{{ frontail_release.stdout|basename }} -d --theme dark --ui-highlight --ui-highlight-preset {{ frontail.path.install }}/python.json {{ frontail.path.logs | join(' ') }}' /etc/rc.local
+
+        - name: Start Frontail
+          command: "{{ frontail.path.install }}/{{ frontail_release.stdout|basename }} -d --theme dark --ui-highlight --ui-highlight-preset {{ frontail.path.install }}/python.json {{ frontail.path.logs | join(' ') }}"
+
+      when: frontail_installed.changed
